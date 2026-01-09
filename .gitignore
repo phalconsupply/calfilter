@@ -1,0 +1,10 @@
+node_modules/
+vendor/
+.env
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.backup
+script.js.backup
