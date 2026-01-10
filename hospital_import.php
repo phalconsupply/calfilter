@@ -565,7 +565,7 @@
             resultSection.style.display = 'none';
             
             try {
-                const response = await fetch('hospital_import.php', {
+                const response = await fetch('hospital_import_handler.php', {
                     method: 'POST',
                     body: formData
                 });
@@ -832,7 +832,7 @@
 
         // Download template
         function downloadTemplate() {
-            window.location.href = 'hospital_import.php?action=download_template';
+            window.location.href = 'hospital_import_handler.php?action=download_template';
         }
 
         // Initialize
