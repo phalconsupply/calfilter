@@ -1,20 +1,31 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
+// Start output buffering to prevent any output before JSON
+ob_start();
+
+// Error handling
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
-
-// Log errors to file instead of displaying
 ini_set('log_errors', 1);
 ini_set('error_log', __DIR__ . '/php-errors.log');
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
-
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+// Set JSON header early
+header('Content-Type: application/json; charset=utf-8');
 
 try {
+    // Include dependencies
+    if (!file_exists(__DIR__ . '/config.php')) {
+        throw new Exception('File config.php không tồn tại');
+    }
+    require_once __DIR__ . '/config.php';
+    
+    if (!file_exists(__DIR__ . '/PhpSpreadsheet/vendor/autoload.php')) {
+        throw new Exception('PhpSpreadsheet chưa được cài đặt. Vui lòng upload folder vendor');
+    }
+    require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
+    
+    use PhpOffice\PhpSpreadsheet\IOFactory;
+    use PhpOffice\PhpSpreadsheet\Spreadsheet;
+    use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
     
     // Handle download template
     if (isset($_GET['action']) && $_GET['action'] === 'download_template') {
@@ -42,13 +53,31 @@ try {
     // Process the file
     $result = processExcelFile($file['tmp_name']);
     
+    // Clear any buffered output and send JSON
+    ob_end_clean();
     echo json_encode($result, JSON_UNESCAPED_UNICODE);
     
 } catch (Exception $e) {
+    // Clear any buffered output
+    ob_end_clean();
+    
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'message' => $e->getMessage()
+        'message' => $e->getMessage(),
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine()
+    ], JSON_UNESCAPED_UNICODE);
+} catch (Error $e) {
+    // Catch fatal errors too
+    ob_end_clean();
+    
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Lỗi hệ thống: ' . $e->getMessage(),
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine()
     ], JSON_UNESCAPED_UNICODE);
 }
 
