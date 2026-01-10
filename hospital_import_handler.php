@@ -115,18 +115,18 @@ function processExcelFile($filePath) {
                     continue;
                 }
                 
-                // Extract data
+                // Extract data - Note: Column 0 is STT (row number), skip it
                 $data = [
-                    'ma_kcb' => trim($row[0] ?? ''),
-                    'ho_ten_bn' => trim($row[1] ?? ''),
-                    'tuoi' => trim($row[2] ?? ''),
-                    'gioi_tinh' => trim($row[3] ?? ''),
-                    'dia_chi' => trim($row[4] ?? ''),
-                    'ngay_vao_vien' => trim($row[5] ?? ''),
-                    'gio_nhap_vien' => trim($row[6] ?? ''),
-                    'khoa_vao_vien' => trim($row[7] ?? ''),
-                    'chan_doan' => trim($row[8] ?? ''),
-                    'bac_si_chi_dinh' => trim($row[9] ?? '')
+                    'ma_kcb' => trim($row[1] ?? ''),        // Cột B
+                    'ho_ten_bn' => trim($row[2] ?? ''),     // Cột C
+                    'tuoi' => trim($row[3] ?? ''),          // Cột D
+                    'gioi_tinh' => trim($row[4] ?? ''),     // Cột E
+                    'dia_chi' => trim($row[5] ?? ''),       // Cột F
+                    'ngay_vao_vien' => trim($row[6] ?? ''), // Cột G
+                    'gio_nhap_vien' => '',                   // Không có trong Excel
+                    'khoa_vao_vien' => trim($row[7] ?? ''), // Cột H
+                    'chan_doan' => trim($row[8] ?? ''),     // Cột I
+                    'bac_si_chi_dinh' => trim($row[9] ?? '') // Cột J
                 ];
                 
                 // Validate required fields
