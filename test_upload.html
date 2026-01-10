@@ -13,6 +13,10 @@
     <h2>Test File Upload to Handler</h2>
     
     <form id="uploadForm">
+        <select id="handlerSelect">
+            <option value="hospital_import_handler.php">hospital_import_handler.php</option>
+            <option value="hospital_import_handler_v2.php">hospital_import_handler_v2.php (if uploaded)</option>
+        </select>
         <input type="file" id="fileInput" accept=".xlsx,.xls" required>
         <button type="submit">Test Upload</button>
     </form>
@@ -37,8 +41,11 @@
             resultDiv.innerHTML = '<p>Uploading...</p>';
             
             try {
-                // Test with v2 handler
-                const response = await fetch('hospital_import_handler_v2.php', {
+                // Get selected handler
+                const handler = document.getElementById('handlerSelect').value;
+                
+                // Test with selected handler
+                const response = await fetch(handler, {
                     method: 'POST',
                     body: formData
                 });
