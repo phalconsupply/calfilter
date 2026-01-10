@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Kiểm tra File Excel</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .upload-form { margin: 20px 0; padding: 20px; background: #f5f5f5; border-radius: 10px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #667eea; color: white; }
+        .info { padding: 15px; background: #e3f2fd; border-radius: 5px; margin: 10px 0; }
+        .warning { padding: 15px; background: #fff3cd; border-radius: 5px; margin: 10px 0; }
+        .error { padding: 15px; background: #f8d7da; border-radius: 5px; margin: 10px 0; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Kiểm tra cấu trúc File Excel</h1>
+    
+    <div class="upload-form">
+        <form id="checkForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" accept=".xlsx,.xls" required>
+            <button type="submit">Kiểm tra File</button>
+        </form>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        document.getElementById('checkForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('result');
+            
+            if (!fileInput.files[0]) {
+                resultDiv.innerHTML = '<div class="error">Vui lòng chọn file</div>';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('check_only', '1');
+            
+            resultDiv.innerHTML = '<div class="info">Đang kiểm tra...</div>';
+            
+            try {
+                const response = await fetch('check_excel_structure.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    let html = '<div class="info">';
+                    html += '<h3>✅ Thông tin file:</h3>';
+                    html += `<p><strong>Tổng số dòng:</strong> ${result.total_rows}</p>`;
+                    html += `<p><strong>Số cột:</strong> ${result.columns}</p>`;
+                    html += '</div>';
+                    
+                    html += '<h3>📋 Header (Dòng đầu tiên):</h3>';
+                    html += '<table><tr>';
+                    result.header.forEach((h, i) => {
+                        html += `<th>Cột ${i + 1}</th>`;
+                    });
+                    html += '</tr><tr>';
+                    result.header.forEach(h => {
+                        html += `<td>${h || '<em>Trống</em>'}</td>`;
+                    });
+                    html += '</tr></table>';
+                    
+                    html += '<h3>🔍 5 dòng dữ liệu đầu tiên:</h3>';
+                    html += '<table><tr>';
+                    for (let i = 0; i < result.columns; i++) {
+                        html += `<th>Cột ${i + 1}</th>`;
+                    }
+                    html += '</tr>';
+                    
+                    result.sample_rows.forEach((row, rowIndex) => {
+                        html += '<tr>';
+                        row.forEach(cell => {
+                            html += `<td>${cell || '<em>Trống</em>'}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    
+                    html += '<div class="warning">';
+                    html += '<h3>⚠️ Lưu ý mapping cột:</h3>';
+                    html += '<ul>';
+                    html += '<li>Cột 1: Mã KCB</li>';
+                    html += '<li>Cột 2: Họ tên BN</li>';
+                    html += '<li>Cột 3: Tuổi</li>';
+                    html += '<li>Cột 4: Giới tính</li>';
+                    html += '<li>Cột 5: Địa chỉ</li>';
+                    html += '<li>Cột 6: Ngày vào viện</li>';
+                    html += '<li>Cột 7: Giờ nhập viện</li>';
+                    html += '<li>Cột 8: Khoa vào viện</li>';
+                    html += '<li>Cột 9: Chẩn đoán</li>';
+                    html += '<li>Cột 10: Bác sĩ chỉ định</li>';
+                    html += '</ul>';
+                    html += '<p><strong>Kiểm tra xem thứ tự cột trong file Excel của bạn có khớp không!</strong></p>';
+                    html += '</div>';
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ Lỗi: ${result.message}</div>`;
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Lỗi kết nối: ${error.message}</div>`;
+            }
+        });
+    </script>
+</body>
+</html>
