@@ -7,13 +7,14 @@ error_reporting(E_ALL);
 ini_set('log_errors', 1);
 ini_set('error_log', __DIR__ . '/php-errors.log');
 
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
+
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+
 try {
-    require_once __DIR__ . '/config.php';
-    require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
-    
-    use PhpOffice\PhpSpreadsheet\IOFactory;
-    use PhpOffice\PhpSpreadsheet\Spreadsheet;
-    use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
     
     // Handle download template
     if (isset($_GET['action']) && $_GET['action'] === 'download_template') {
