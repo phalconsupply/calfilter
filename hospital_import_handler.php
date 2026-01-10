@@ -11,21 +11,27 @@ ini_set('error_log', __DIR__ . '/php-errors.log');
 // Set JSON header early
 header('Content-Type: application/json; charset=utf-8');
 
+// Include dependencies first
+if (!file_exists(__DIR__ . '/config.php')) {
+    ob_end_clean();
+    echo json_encode(['success' => false, 'message' => 'File config.php không tồn tại'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+require_once __DIR__ . '/config.php';
+
+if (!file_exists(__DIR__ . '/PhpSpreadsheet/vendor/autoload.php')) {
+    ob_end_clean();
+    echo json_encode(['success' => false, 'message' => 'PhpSpreadsheet chưa được cài đặt'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
+
+// Use statements MUST be at top level
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+
 try {
-    // Include dependencies
-    if (!file_exists(__DIR__ . '/config.php')) {
-        throw new Exception('File config.php không tồn tại');
-    }
-    require_once __DIR__ . '/config.php';
-    
-    if (!file_exists(__DIR__ . '/PhpSpreadsheet/vendor/autoload.php')) {
-        throw new Exception('PhpSpreadsheet chưa được cài đặt. Vui lòng upload folder vendor');
-    }
-    require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
-    
-    use PhpOffice\PhpSpreadsheet\IOFactory;
-    use PhpOffice\PhpSpreadsheet\Spreadsheet;
-    use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
     
     // Handle download template
     if (isset($_GET['action']) && $_GET['action'] === 'download_template') {
