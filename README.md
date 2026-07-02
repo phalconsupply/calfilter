@@ -2,6 +2,8 @@
 
 Hệ thống quản lý lịch Việt Nam và theo dõi ca nhập viện cho bệnh viện.
 
+> 📄 Tài liệu kỹ thuật chi tiết (kiến trúc, schema, API, luồng import/xử lý, quy tắc chống trùng): xem [PROJECT.md](PROJECT.md).
+
 ## Tính năng
 
 ### 1. Lịch Việt Nam (index.php)
@@ -48,9 +50,7 @@ cd calfilter
 
 2. **Tạo database**
 - Tạo database mới tên `bvrank`
-- Chạy các file khởi tạo:
-  - `create_hospital_table.php`
-  - `update_database.php`
+- Import schema + dữ liệu mẫu từ file `database/bvrank.sql` (đã chứa đầy đủ cấu trúc 2 bảng)
 
 3. **Cấu hình database**
 Sửa file `config.php`:
@@ -81,7 +81,7 @@ chmod 644 *.php
 
 ### Bảng `hospital_admissions`
 - `id` - Primary key
-- `ma_kcb` - Mã khám chữa bệnh (UNIQUE)
+- `ma_kcb` - Mã khám chữa bệnh (chống trùng theo `ma_kcb` + `ngay_vao_vien`)
 - `ho_ten_bn` - Họ tên bệnh nhân
 - `tuoi` - Tuổi
 - `gioi_tinh` - Giới tính
