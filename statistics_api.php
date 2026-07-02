@@ -15,6 +15,55 @@ switch ($action) {
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
 }
 
+/**
+ * Dựng mệnh đề WHERE theo kỳ báo cáo, TRẢ VỀ placeholder + tham số (chống SQL injection).
+ * @return array [whereClause, params[], typesString]
+ */
+function buildPeriodWhere($type, $period) {
+    if ($type === 'month') {
+        // Format: YYYY-MM
+        list($year, $month) = array_pad(explode('-', $period), 2, '');
+        $startDate = sprintf('%04d-%02d-01', (int)$year, (int)$month);
+        $endDate = date('Y-m-t', strtotime($startDate));
+        return ['ngay_vao_vien BETWEEN ? AND ?', [$startDate, $endDate], 'ss'];
+    }
+    // Year format: YYYY
+    return ['YEAR(ngay_vao_vien) = ?', [(int)$period], 'i'];
+}
+
+/**
+ * Nhãn hiển thị kỳ báo cáo.
+ */
+function periodLabel($type, $period) {
+    if ($type === 'month') {
+        list($year, $month) = array_pad(explode('-', $period), 2, '');
+        return "Tháng " . (int)$month . "/" . (int)$year;
+    }
+    return "Năm " . (int)$period;
+}
+
+/**
+ * Truy vấn xếp hạng bác sĩ theo số lượt của một loại giờ, dùng prepared statement.
+ */
+function fetchRanking($conn, $whereClause, $params, $paramTypes, $admissionTimeType) {
+    $sql = "SELECT bac_si_chi_dinh, COUNT(*) as count
+            FROM hospital_admissions
+            WHERE $whereClause AND admission_time_type = ?
+            GROUP BY bac_si_chi_dinh
+            ORDER BY count DESC";
+    $stmt = $conn->prepare($sql);
+    $allParams = array_merge($params, [$admissionTimeType]);
+    $stmt->bind_param($paramTypes . 's', ...$allParams);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = [];
+    while ($row = $result->fetch_assoc()) {
+        $data[] = $row;
+    }
+    $stmt->close();
+    return $data;
+}
+
 function generateStatistics() {
     $type = $_GET['type'] ?? 'month'; // month or year
     $period = $_GET['period'] ?? '';
@@ -25,51 +74,17 @@ function generateStatistics() {
     }
     
     $conn = getDbConnection();
-    
+
     try {
-        // Build WHERE clause based on period type
-        if ($type === 'month') {
-            // Format: YYYY-MM
-            list($year, $month) = explode('-', $period);
-            $startDate = "$year-$month-01";
-            $endDate = date("Y-m-t", strtotime($startDate));
-            $whereClause = "ngay_vao_vien BETWEEN '$startDate' AND '$endDate'";
-        } else {
-            // Year format: YYYY
-            $year = $period;
-            $whereClause = "YEAR(ngay_vao_vien) = $year";
-        }
-        
+        // Build WHERE clause based on period type (tham số hoá để tránh SQL injection)
+        list($whereClause, $params, $paramTypes) = buildPeriodWhere($type, $period);
+
         // Get off-hours ranking
-        $offHoursSql = "SELECT bac_si_chi_dinh, COUNT(*) as count 
-                        FROM hospital_admissions 
-                        WHERE $whereClause AND admission_time_type = 'Ngoài giờ'
-                        GROUP BY bac_si_chi_dinh 
-                        ORDER BY count DESC";
-        
-        $offHoursResult = $conn->query($offHoursSql);
-        $offHoursData = [];
-        if ($offHoursResult) {
-            while ($row = $offHoursResult->fetch_assoc()) {
-                $offHoursData[] = $row;
-            }
-        }
-        
+        $offHoursData = fetchRanking($conn, $whereClause, $params, $paramTypes, 'Ngoài giờ');
+
         // Get on-time ranking
-        $onTimeSql = "SELECT bac_si_chi_dinh, COUNT(*) as count 
-                      FROM hospital_admissions 
-                      WHERE $whereClause AND admission_time_type = 'Đúng giờ'
-                      GROUP BY bac_si_chi_dinh 
-                      ORDER BY count DESC";
-        
-        $onTimeResult = $conn->query($onTimeSql);
-        $onTimeData = [];
-        if ($onTimeResult) {
-            while ($row = $onTimeResult->fetch_assoc()) {
-                $onTimeData[] = $row;
-            }
-        }
-        
+        $onTimeData = fetchRanking($conn, $whereClause, $params, $paramTypes, 'Đúng giờ');
+
         $conn->close();
         
         echo json_encode([
@@ -109,42 +124,17 @@ function exportToExcel() {
     $conn = getDbConnection();
     
     try {
-        // Build WHERE clause
-        if ($type === 'month') {
-            list($year, $month) = explode('-', $period);
-            $startDate = "$year-$month-01";
-            $endDate = date("Y-m-t", strtotime($startDate));
-            $whereClause = "ngay_vao_vien BETWEEN '$startDate' AND '$endDate'";
-            $periodText = "Tháng $month/$year";
-        } else {
-            $year = $period;
-            $whereClause = "YEAR(ngay_vao_vien) = $year";
-            $periodText = "Năm $year";
-        }
-        
+        // Build WHERE clause (tham số hoá)
+        list($whereClause, $params, $paramTypes) = buildPeriodWhere($type, $period);
+        $periodText = periodLabel($type, $period);
+
         // Determine admission time type
         $admissionTimeType = $timeType === 'off-hours' ? 'Ngoài giờ' : 'Đúng giờ';
         $rankingTitle = $timeType === 'off-hours' ? 'Xếp hạng ca Ngoài giờ' : 'Xếp hạng ca Đúng giờ';
-        
+
         // Get ranking data
-        $sql = "SELECT bac_si_chi_dinh, COUNT(*) as count 
-                FROM hospital_admissions 
-                WHERE $whereClause AND admission_time_type = ?
-                GROUP BY bac_si_chi_dinh 
-                ORDER BY count DESC";
-        
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("s", $admissionTimeType);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $rankingData = [];
-        while ($row = $result->fetch_assoc()) {
-            $rankingData[] = $row;
-        }
-        
-        $stmt->close();
-        
+        $rankingData = fetchRanking($conn, $whereClause, $params, $paramTypes, $admissionTimeType);
+
         // Create Excel file
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         
@@ -272,12 +262,13 @@ function exportToExcel() {
             $detailSheet->getStyle('A4:L4')->applyFromArray($headerStyle);
             
             // Get admissions for this doctor
-            $detailSql = "SELECT * FROM hospital_admissions 
+            $detailSql = "SELECT * FROM hospital_admissions
                           WHERE $whereClause AND admission_time_type = ? AND bac_si_chi_dinh = ?
                           ORDER BY admission_datetime DESC";
-            
+
             $detailStmt = $conn2->prepare($detailSql);
-            $detailStmt->bind_param("ss", $admissionTimeType, $doctorName);
+            $detailParams = array_merge($params, [$admissionTimeType, $doctorName]);
+            $detailStmt->bind_param($paramTypes . 'ss', ...$detailParams);
             $detailStmt->execute();
             $detailResult = $detailStmt->get_result();
             
