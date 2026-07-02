@@ -95,20 +95,23 @@ Schema hiện tại đã bao gồm các thay đổi sau (đã áp dụng, giữ 
 
 ## 7. Quy tắc phân loại giờ nhập viện
 
-Logic nằm trong `update_admission_times.php` (`calculateAdmissionTimeType`) và `hospital_import_handler.php`. Dựa trên `admission_datetime` và bảng ngày nghỉ.
+Logic **dùng chung** trong `admission_rules.php` (`classifyAdmissionTimeType` + `loadCalendarMap`), được cả `hospital_import_handler.php` (lúc import) và `update_admission_times.php` (nút cập nhật) require. Dựa trên `admission_datetime` và lịch (`calendar_days_off`).
 
-### `Ngoài giờ` — nếu thỏa **1** trong các điều kiện:
-- Cuối tuần: Thứ 7 hoặc Chủ nhật
-- Trước giờ làm: < 7:00
-- Giờ nghỉ trưa: 11:30 – 13:29 (690–809 phút)
-- Sau giờ làm: ≥ 17:00
-- Ngày được đánh dấu `day_off` trong lịch
+### Xác định "ngày làm việc" hay "ngày nghỉ" (theo lịch)
+- Ngày đánh dấu `day_off` → **ngày nghỉ**.
+- Cuối tuần (T7/CN) **không** đánh dấu `working_day` → **ngày nghỉ**.
+- Ngày thường không nghỉ **hoặc** cuối tuần được đánh dấu `working_day` (làm bù) → **ngày làm việc**.
 
-### `Đúng giờ` — phải thỏa **tất cả**:
-- Là ngày làm việc (T2–T6, không phải `day_off`)
-- Sáng 7:00 – 11:29 **hoặc** chiều 13:30 – 16:59
+### `Ngoài giờ` — nếu:
+- Là **ngày nghỉ** (theo xác định trên), **hoặc**
+- Là ngày làm việc nhưng rơi vào: trước 7:00, nghỉ trưa 11:30–13:29 (690–809 phút), hoặc từ 17:00 trở đi.
 
-> Ngày `working_day` (làm bù) không tự động biến cuối tuần thành đúng giờ trong logic hiện tại — chỉ `day_off` được kiểm tra. Cân nhắc khi mở rộng.
+### `Đúng giờ`:
+- Là **ngày làm việc** và giờ trong khung: sáng 7:00–11:29 **hoặc** chiều 13:30–16:59.
+
+> ✅ Cuối tuần được tick **làm bù (`working_day`)** sẽ được tính **như ngày thường** — giờ hành chính là `Đúng giờ`, các khung ngoài giờ vẫn `Ngoài giờ`.
+>
+> ⚠️ Dữ liệu đã import **không** tự đổi khi bạn sửa lịch — phải bấm nút **🔄 Cập nhật loại giờ nhập viện** (trang Lịch) hoặc "Xóa và tạo lại báo cáo" (trang Thống kê) để tính lại.
 
 ## 8. Import Excel
 

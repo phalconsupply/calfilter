@@ -25,6 +25,7 @@ if (!file_exists(__DIR__ . '/PhpSpreadsheet/vendor/autoload.php')) {
     exit;
 }
 require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
+require_once __DIR__ . '/admission_rules.php';
 
 // Use statements MUST be at top level
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -108,8 +109,8 @@ function processExcelFile($filePath) {
         
         $conn = getDbConnection();
 
-        // Nạp lịch nghỉ MỘT LẦN vào mảng (tránh truy vấn DB cho từng dòng)
-        $daysOffMap = loadDaysOffMap($conn);
+        // Nạp lịch (ngày nghỉ + ngày làm bù) MỘT LẦN vào mảng
+        $calendarMap = loadCalendarMap($conn);
 
         // Chuẩn bị sẵn các câu lệnh, tái sử dụng trong vòng lặp.
         // Chống trùng theo (ma_kcb, ngay_vao_vien): cùng bệnh nhân + cùng ngày = 1 lượt
@@ -171,8 +172,8 @@ function processExcelFile($filePath) {
                 $ngayVaoVien = $parsed['date'];           // Y-m-d cho cột ngay_vao_vien (DATE)
                 $admissionDatetime = $parsed['datetime']; // Y-m-d H:i:s cho admission_datetime
 
-                // Đối chiếu rule + lịch nghỉ (đã nạp sẵn) để phân loại giờ nhập viện
-                $timeType = calculateAdmissionTimeType($admissionDatetime, $daysOffMap);
+                // Đối chiếu rule + lịch (đã nạp sẵn) để phân loại giờ nhập viện
+                $timeType = classifyAdmissionTimeType($admissionDatetime, $calendarMap);
 
                 // Chống trùng: tìm bản ghi cùng (ma_kcb, ngay_vao_vien)
                 $findStmt->bind_param('ss', $data['ma_kcb'], $ngayVaoVien);
@@ -298,67 +299,6 @@ function parseAdmissionDateTime($value) {
     }
 
     return null;
-}
-
-/**
- * Nạp danh sách ngày nghỉ (type = 'day_off') vào mảng dạng [ 'Y-m-d' => true ].
- * Gọi một lần trước vòng lặp import để tránh truy vấn DB cho từng dòng.
- * Đồng bộ với logic trong update_admission_times.php.
- */
-function loadDaysOffMap($conn) {
-    $daysOffMap = [];
-    $result = $conn->query("SELECT day_date FROM calendar_days_off WHERE type = 'day_off'");
-    if ($result) {
-        while ($row = $result->fetch_assoc()) {
-            $daysOffMap[$row['day_date']] = true;
-        }
-    }
-    return $daysOffMap;
-}
-
-/**
- * Phân loại "Đúng giờ" / "Ngoài giờ" dựa trên ngày giờ và mảng ngày nghỉ đã nạp sẵn.
- * Quy tắc trùng khớp update_admission_times.php (nguồn chuẩn khi tính lại theo lịch).
- */
-function calculateAdmissionTimeType($datetimeStr, $daysOffMap = []) {
-    try {
-        $dt = new DateTime($datetimeStr);
-        $date = $dt->format('Y-m-d');
-        $hour = (int)$dt->format('H');
-        $minute = (int)$dt->format('i');
-        $timeInMinutes = $hour * 60 + $minute;
-        $dayOfWeek = (int)$dt->format('N'); // 1 = Monday, 7 = Sunday
-
-        // Cuối tuần (Thứ 7 / Chủ nhật)
-        if ($dayOfWeek >= 6) {
-            return 'Ngoài giờ';
-        }
-
-        // Ngày được đánh dấu nghỉ trong lịch
-        if (isset($daysOffMap[$date])) {
-            return 'Ngoài giờ';
-        }
-
-        // Trước 7:00
-        if ($hour < 7) {
-            return 'Ngoài giờ';
-        }
-
-        // Nghỉ trưa 11:30 - 13:29 (690 - 809 phút)
-        if ($timeInMinutes >= 690 && $timeInMinutes <= 809) {
-            return 'Ngoài giờ';
-        }
-
-        // Sau 17:00
-        if ($hour >= 17) {
-            return 'Ngoài giờ';
-        }
-
-        return 'Đúng giờ';
-
-    } catch (Exception $e) {
-        return 'Ngoài giờ';
-    }
 }
 
 function downloadTemplate() {

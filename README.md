@@ -96,16 +96,17 @@ chmod 644 *.php
 ## Quy tắc phân loại giờ nhập viện
 
 ### Ngoài giờ (nếu thỏa 1 trong các điều kiện):
-- Cuối tuần (Thứ 7 hoặc Chủ nhật)
+- Cuối tuần (Thứ 7 hoặc Chủ nhật) **không** được đánh dấu làm bù
+- Ngày được đánh dấu nghỉ (`day_off`) trong lịch
 - Trước giờ làm (< 7:00 AM)
 - Giờ nghỉ trưa (11:30 AM - 1:29 PM)
 - Sau giờ làm (≥ 5:00 PM)
-- Ngày được đánh dấu nghỉ trong lịch
 
 ### Đúng giờ (phải thỏa tất cả):
-- Sáng: 7:00 AM - 11:29 AM
-- Chiều: 1:30 PM - 4:59 PM
-- Ngày làm việc (Thứ 2-6, không phải ngày nghỉ)
+- Là ngày làm việc: Thứ 2–6 không nghỉ, **hoặc** cuối tuần được đánh dấu làm bù (`working_day`)
+- Sáng: 7:00 AM - 11:29 AM **hoặc** Chiều: 1:30 PM - 4:59 PM
+
+> Logic phân loại nằm ở `admission_rules.php` (dùng chung cho import và nút cập nhật). Sau khi sửa lịch, bấm **🔄 Cập nhật loại giờ nhập viện** để tính lại dữ liệu cũ.
 
 ## Triển khai trên cPanel
 
