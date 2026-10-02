@@ -1,17 +1,19 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
 require_once 'config.php';
 
 $action = $_GET['action'] ?? '';
 
+// 'export' trả về file nhị phân nên KHÔNG đặt Content-Type JSON cho nhánh đó.
 switch ($action) {
     case 'generate':
+        header('Content-Type: application/json; charset=utf-8');
         generateStatistics();
         break;
     case 'export':
         exportToExcel();
         break;
     default:
+        header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
 }
 
@@ -40,6 +42,68 @@ function periodLabel($type, $period) {
         return "Tháng " . (int)$month . "/" . (int)$year;
     }
     return "Năm " . (int)$period;
+}
+
+/**
+ * Tạo tên sheet hợp lệ cho Excel.
+ * - Cắt theo KÝ TỰ (mb_substr) chứ không theo byte: cắt bằng substr() làm đứt ký tự
+ *   UTF-8 nhiều byte (tên tiếng Việt có dấu) -> workbook.xml sai UTF-8 -> Excel mở
+ *   được file nhưng không đọc được dữ liệu.
+ * - Bỏ các ký tự Excel không cho phép trong tên sheet: * : / \ ? [ ]
+ * - Đảm bảo không rỗng và không trùng tên sheet đã dùng.
+ */
+function makeSheetTitle($rank, $doctorName, array &$usedTitles) {
+    $prefix = "Top{$rank}_";
+    $name = preg_replace('/[*:\/\\\\?\[\]]/u', ' ', (string)$doctorName);
+    $name = trim(preg_replace('/\s+/u', ' ', $name));
+
+    $title = mb_substr($prefix . $name, 0, 31, 'UTF-8');
+    if (trim($title) === '') {
+        $title = 'Sheet' . $rank;
+    }
+
+    // Tên sau khi cắt 31 ký tự có thể trùng nhau -> setTitle() sẽ ném exception
+    $base = $title;
+    $i = 2;
+    while (isset($usedTitles[mb_strtolower($title, 'UTF-8')])) {
+        $suffix = '_' . $i;
+        $title = mb_substr($base, 0, 31 - mb_strlen($suffix, 'UTF-8'), 'UTF-8') . $suffix;
+        $i++;
+    }
+    $usedTitles[mb_strtolower($title, 'UTF-8')] = true;
+
+    return $title;
+}
+
+/**
+ * Gửi header tải file với tên UTF-8 đúng chuẩn RFC 6266
+ * (header HTTP chỉ chấp nhận ASCII, nên cần bản dự phòng ASCII + filename*).
+ */
+function sendDownloadHeaders($filename) {
+    $ascii = preg_replace('/[^A-Za-z0-9._-]/', '_', boDauTiengViet($filename));
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header("Content-Disposition: attachment; filename=\"$ascii\"; filename*=UTF-8''" . rawurlencode($filename));
+    header('Cache-Control: max-age=0');
+    header('Pragma: public');
+}
+
+/**
+ * Bỏ dấu tiếng Việt để làm tên file dự phòng dạng ASCII.
+ */
+function boDauTiengViet($str) {
+    $map = [
+        'a' => 'áàảãạăắằẳẵặâấầẩẫậ', 'd' => 'đ', 'e' => 'éèẻẽẹêếềểễệ',
+        'i' => 'íìỉĩị', 'o' => 'óòỏõọôốồổỗộơớờởỡợ',
+        'u' => 'úùủũụưứừửữự', 'y' => 'ýỳỷỹỵ',
+    ];
+    foreach ($map as $plain => $accented) {
+        $chars = preg_split('//u', $accented, -1, PREG_SPLIT_NO_EMPTY);
+        $str = str_replace($chars, $plain, $str);
+        $str = str_replace(array_map(function ($c) {
+            return mb_strtoupper($c, 'UTF-8');
+        }, $chars), mb_strtoupper($plain, 'UTF-8'), $str);
+    }
+    return $str;
 }
 
 /**
@@ -109,20 +173,33 @@ function exportToExcel() {
     $timeType = $_GET['time_type'] ?? 'off-hours'; // off-hours or on-time
     
     if (empty($period)) {
+        header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['success' => false, 'message' => 'Vui lòng chọn thời gian']);
         return;
     }
-    
+
     // Check if PhpSpreadsheet is available
     if (!file_exists(__DIR__ . '/PhpSpreadsheet/vendor/autoload.php')) {
+        header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['success' => false, 'message' => 'PhpSpreadsheet chưa được cài đặt']);
         return;
     }
-    
+
     require_once __DIR__ . '/PhpSpreadsheet/vendor/autoload.php';
-    
+
+    // Warning/notice in ra giữa luồng sẽ lẫn vào file .xlsx và làm hỏng file.
+    // Ghi log thay vì in ra, và dựng file trong buffer để kiểm soát đầu ra.
+    @ini_set('display_errors', '0');
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('memory_limit', '512M');
+    @set_time_limit(300);
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    ob_start();
+
     $conn = getDbConnection();
-    
+
     try {
         // Build WHERE clause (tham số hoá)
         list($whereClause, $params, $paramTypes) = buildPeriodWhere($type, $period);
@@ -220,17 +297,17 @@ function exportToExcel() {
         $sheet->getStyle("A4:C" . ($row - 1))->applyFromArray($styleArray);
         
         // ===== SHEET 2: DETAILED ADMISSIONS FOR EACH DOCTOR =====
-        $conn2 = getDbConnection();
-        
+        $usedTitles = [mb_strtolower($sheet->getTitle(), 'UTF-8') => true];
+
         // Get detailed admissions for each doctor
         foreach ($rankingData as $index => $doctorData) {
-            $doctorName = $doctorData['bac_si_chi_dinh'];
+            $doctorName = (string)$doctorData['bac_si_chi_dinh'];
             $rank = $index + 1;
-            
+
             // Create new sheet for this doctor
+            // (tên sheet tối đa 31 KÝ TỰ, phải hợp lệ và không trùng - xem makeSheetTitle)
             $detailSheet = $spreadsheet->createSheet();
-            $sheetName = substr("Top{$rank}_{$doctorName}", 0, 31); // Excel sheet name limit is 31 chars
-            $detailSheet->setTitle($sheetName);
+            $detailSheet->setTitle(makeSheetTitle($rank, $doctorName, $usedTitles));
             
             // Title
             $detailSheet->setCellValue('A1', "Chi tiết ca bệnh - {$doctorName}");
@@ -266,7 +343,7 @@ function exportToExcel() {
                           WHERE $whereClause AND admission_time_type = ? AND bac_si_chi_dinh = ?
                           ORDER BY admission_datetime DESC";
 
-            $detailStmt = $conn2->prepare($detailSql);
+            $detailStmt = $conn->prepare($detailSql);
             $detailParams = array_merge($params, [$admissionTimeType, $doctorName]);
             $detailStmt->bind_param($paramTypes . 'ss', ...$detailParams);
             $detailStmt->execute();
@@ -276,23 +353,27 @@ function exportToExcel() {
             $stt = 1;
             while ($admission = $detailResult->fetch_assoc()) {
                 $detailSheet->setCellValue("A$detailRow", $stt);
-                $detailSheet->setCellValue("B$detailRow", $admission['ma_kcb']);
-                $detailSheet->setCellValue("C$detailRow", $admission['ho_ten_bn']);
-                $detailSheet->setCellValue("D$detailRow", $admission['tuoi']);
-                $detailSheet->setCellValue("E$detailRow", $admission['gioi_tinh']);
-                $detailSheet->setCellValue("F$detailRow", $admission['dia_chi']);
-                $detailSheet->setCellValue("G$detailRow", $admission['ngay_vao_vien']);
-                
+                $detailSheet->setCellValueExplicit(
+                    "B$detailRow",
+                    (string)($admission['ma_kcb'] ?? ''),
+                    \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
+                );
+                $detailSheet->setCellValue("C$detailRow", $admission['ho_ten_bn'] ?? '');
+                $detailSheet->setCellValue("D$detailRow", $admission['tuoi'] ?? '');
+                $detailSheet->setCellValue("E$detailRow", $admission['gioi_tinh'] ?? '');
+                $detailSheet->setCellValue("F$detailRow", $admission['dia_chi'] ?? '');
+                $detailSheet->setCellValue("G$detailRow", $admission['ngay_vao_vien'] ?? '');
+
                 // Format admission_datetime to show only time
-                if ($admission['admission_datetime']) {
+                if (!empty($admission['admission_datetime'])) {
                     $datetime = new DateTime($admission['admission_datetime']);
                     $detailSheet->setCellValue("H$detailRow", $datetime->format('H:i:s'));
                 }
-                
-                $detailSheet->setCellValue("I$detailRow", $admission['admission_time_type']);
-                $detailSheet->setCellValue("J$detailRow", $admission['khoa_vao_vien']);
-                $detailSheet->setCellValue("K$detailRow", $admission['chan_doan']);
-                $detailSheet->setCellValue("L$detailRow", $admission['bac_si_chi_dinh']);
+
+                $detailSheet->setCellValue("I$detailRow", $admission['admission_time_type'] ?? '');
+                $detailSheet->setCellValue("J$detailRow", $admission['khoa_vao_vien'] ?? '');
+                $detailSheet->setCellValue("K$detailRow", $admission['chan_doan'] ?? '');
+                $detailSheet->setCellValue("L$detailRow", $admission['bac_si_chi_dinh'] ?? '');
                 
                 // Center align STT and age
                 $detailSheet->getStyle("A$detailRow")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
@@ -325,22 +406,41 @@ function exportToExcel() {
             }
         }
         
-        $conn2->close();
-        
+        $conn->close();
+
         // Output file
         $filename = "Thong_ke_{$admissionTimeType}_{$periodText}.xlsx";
         $filename = str_replace(['/', ' '], ['_', '_'], $filename);
-        
-        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header("Content-Disposition: attachment; filename=\"$filename\"");
-        header('Cache-Control: max-age=0');
-        
+
+        // Ghi file vào buffer riêng rồi mới gửi, để output lạ (warning, khoảng trắng)
+        // không lẫn vào nội dung .xlsx.
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        ob_start();
         $writer->save('php://output');
+        $xlsx = ob_get_clean();
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+
+        // Bỏ mọi thứ đã in ra trước đó (buffer ngoài cùng mở ở đầu hàm)
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        sendDownloadHeaders($filename);
+        header('Content-Length: ' . strlen($xlsx));
+        echo $xlsx;
         exit;
-        
-    } catch (Exception $e) {
-        echo "Lỗi: " . $e->getMessage();
+
+    } catch (\Throwable $e) {
+        // Không gửi file nửa vời: xoá buffer và trả về thông báo lỗi đọc được.
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        error_log('statistics_api export error: ' . $e->getMessage());
+        if (!headers_sent()) {
+            header('Content-Type: text/plain; charset=utf-8', true, 500);
+        }
+        echo "Lỗi khi xuất Excel: " . $e->getMessage();
     }
 }
 ?>
